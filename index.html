@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversor de bases</title>
+<style>
+:root{
+  --bg:#e9f0ee; --card:#ffffff; --ink:#14304a; --soft:#5d7388; --line:#cfdcd8;
+  --on:#2f5bff; --on-ink:#fff; --off:#dfe8e5; --bad:#d6342a;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1c2b; --card:#17293c; --ink:#e6f0f7; --soft:#8ea6bb; --line:#27405a; --on:#6f8dff; --on-ink:#0f1c2b; --off:#213650; --bad:#ff7a70}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;min-height:100vh;padding:clamp(16px,4vw,48px)}
+main{max-width:860px;margin:0 auto}
+h1{font-size:clamp(2rem,6vw,3.4rem);margin:0 0 6px;letter-spacing:-.03em;line-height:1}
+.sub{color:var(--soft);margin:0 0 28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:clamp(16px,3vw,26px)}
+.grid{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.field label{display:flex;justify-content:space-between;align-items:center;font-size:.9rem;color:var(--soft);margin-bottom:6px}
+.field .row{display:flex;gap:6px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:2px solid transparent;border-radius:12px;padding:12px 14px;width:100%;outline:none;transition:border-color .15s}
+input{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:1.1rem}
+input:focus,select:focus{border-color:var(--on)}
+input.bad{border-color:var(--bad)}
+button{font:inherit;cursor:pointer;border:0;border-radius:12px;background:var(--off);color:var(--ink);padding:0 14px}
+button:hover{background:var(--line)}
+button:focus-visible{outline:2px solid var(--on);outline-offset:2px}
+.copy{min-width:78px;font-size:.85rem}
+.err{color:var(--bad);font-size:.85rem;min-height:1.1em;margin-top:4px}
+.bits-head{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin:26px 0 12px}
+.bits-head h2{font-size:1.2rem;margin:0}
+.bits-head select{width:auto;padding:8px 12px}
+.bits{display:flex;flex-wrap:wrap;gap:14px 12px}
+.nib{display:flex;flex-direction:column;align-items:center;gap:6px}
+.nib div.b{display:flex;gap:4px}
+.bit{width:40px;height:52px;padding:0;font-family:ui-monospace,Consolas,monospace;font-size:1.3rem;font-weight:600;background:var(--off);color:var(--soft);transition:transform .12s,background .12s}
+.bit.on{background:var(--on);color:var(--on-ink);transform:translateY(-4px)}
+.hexd{font-family:ui-monospace,Consolas,monospace;font-size:.9rem;color:var(--soft)}
+.note{color:var(--soft);font-size:.85rem;margin-top:12px}
+@media(max-width:520px){.bit{width:30px;height:44px;font-size:1.1rem}.bits{gap:12px 8px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Conversor de bases</h1>
+  <p class="sub">Escribe en cualquier casilla y las demás se actualizan al instante.</p>
+
+  <section class="card">
+    <div class="grid" id="fields"></div>
+    <div class="bits-head">
+      <h2>Bits</h2>
+      <select id="width" aria-label="Número de bits">
+        <option value="8">8 bits</option>
+        <option value="16">16 bits</option>
+        <option value="32" selected>32 bits</option>
+        <option value="64">64 bits</option>
+      </select>
+    </div>
+    <div class="bits" id="bits"></div>
+    <p class="note" id="bitnote">Pulsa un bit para cambiarlo entre 0 y 1. Debajo de cada grupo de 4 bits aparece su dígito hexadecimal.</p>
+  </section>
+</main>
+
+<script>
+const DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz";
+const defs = [
+  {id:"dec", name:"Decimal", base:10},
+  {id:"bin", name:"Binario", base:2},
+  {id:"hex", name:"Hexadecimal", base:16},
+  {id:"oct", name:"Octal", base:8},
+  {id:"cus", name:"Otra base", base:36, custom:true}
+];
+const el = {}; let value = 0n;
+
+function parse(text, base){
+  let s = text.replace(/[\s_,]/g,"").toLowerCase();
+  if(!s) return null;
+  let neg = false;
+  if(s[0]==="-"){neg=true; s=s.slice(1);} else if(s[0]==="+"){s=s.slice(1);}
+  const pre = {2:"0b",8:"0o",16:"0x"}[base];
+  if(pre && s.startsWith(pre)) s = s.slice(2);
+  if(!s) return null;
+  let n = 0n; const B = BigInt(base);
+  for(const ch of s){
+    const d = DIGITS.indexOf(ch);
+    if(d<0 || d>=base) throw new Error(`"${ch}" no es válido en base ${base}`);
+    n = n*B + BigInt(d);
+  }
+  return neg ? -n : n;
+}
+function group(s, size){
+  const neg = s.startsWith("-"); if(neg) s = s.slice(1);
+  const out = s.replace(new RegExp(`(?=(?:.{${size}})+$)`,"g")," ").trim();
+  return (neg?"-":"")+out;
+}
+function format(n, base){
+  let s = n.toString(base).toUpperCase();
+  if(base===2) return group(s,4);
+  if(base===16) return group(s,4);
+  return s;
+}
+
+// Construir casillas
+const fields = document.getElementById("fields");
+defs.forEach(d=>{
+  const w = document.createElement("div"); w.className="field";
+  w.innerHTML = `
+    <label for="${d.id}"><span>${d.name}</span>${d.custom?'<select id="cbase" style="width:auto;padding:4px 8px;font-size:.85rem"></select>':`<span>base ${d.base}</span>`}</label>
+    <div class="row"><input id="${d.id}" inputmode="text" autocomplete="off" spellcheck="false" placeholder="0">
+    <button class="copy" type="button" data-for="${d.id}">Copiar</button></div>
+    <div class="err" id="${d.id}-err" role="alert"></div>`;
+  fields.appendChild(w);
+  el[d.id] = w.querySelector("input");
+});
+const cbase = document.getElementById("cbase");
+for(let b=2;b<=36;b++){ const o=document.createElement("option"); o.value=b; o.textContent=`base ${b}`; if(b===36) o.selected=true; cbase.appendChild(o); }
+cbase.value = "3";
+const getBase = d => d.custom ? +cbase.value : d.base;
+
+function render(skip){
+  defs.forEach(d=>{
+    if(d.id===skip) return;
+    el[d.id].value = format(value, getBase(d));
+    el[d.id].classList.remove("bad");
+    document.getElementById(d.id+"-err").textContent = "";
+  });
+  renderBits();
+}
+
+defs.forEach(d=>{
+  el[d.id].addEventListener("input", ()=>{
+    const err = document.getElementById(d.id+"-err");
+    try{
+      const n = parse(el[d.id].value, getBase(d));
+      el[d.id].classList.remove("bad"); err.textContent="";
+      value = n===null ? 0n : n;
+      render(d.id);
+    }catch(e){
+      el[d.id].classList.add("bad"); err.textContent = e.message;
+    }
+  });
+});
+cbase.addEventListener("change", ()=>render());
+
+document.addEventListener("click", e=>{
+  const b = e.target.closest(".copy"); if(!b) return;
+  const t = el[b.dataset.for].value.replace(/\s/g,"");
+  navigator.clipboard?.writeText(t).then(()=>{ b.textContent="Copiado"; setTimeout(()=>b.textContent="Copiar",1200); });
+});
+
+// Bits
+const widthSel = document.getElementById("width");
+const bitsBox = document.getElementById("bits");
+const note = document.getElementById("bitnote");
+const baseNote = note.textContent;
+function renderBits(){
+  const w = +widthSel.value, W = BigInt(w);
+  bitsBox.innerHTML = "";
+  if(value < 0n || value >= (1n<<W)){
+    note.textContent = value<0n
+      ? "Los bits se muestran solo para números positivos."
+      : `El número no cabe en ${w} bits. Elige más bits para verlo.`;
+    return;
+  }
+  note.textContent = baseNote;
+  for(let g=w/4-1; g>=0; g--){
+    const nib = document.createElement("div"); nib.className="nib";
+    const row = document.createElement("div"); row.className="b";
+    for(let k=3;k>=0;k--){
+      const pos = BigInt(g*4+k);
+      const on = (value>>pos)&1n;
+      const btn = document.createElement("button");
+      btn.type="button"; btn.className="bit"+(on?" on":"");
+      btn.textContent = on?"1":"0";
+      btn.setAttribute("aria-label",`Bit ${pos}, valor ${on}`);
+      btn.setAttribute("aria-pressed", on?"true":"false");
+      btn.onclick = ()=>{ value ^= (1n<<pos); render(); };
+      row.appendChild(btn);
+    }
+    const hx = document.createElement("span"); hx.className="hexd";
+    hx.textContent = ((value>>BigInt(g*4))&15n).toString(16).toUpperCase();
+    nib.append(row,hx); bitsBox.appendChild(nib);
+  }
+}
+widthSel.addEventListener("change", renderBits);
+
+value = 202n; render();
+</script>
+</body>
+</html>
